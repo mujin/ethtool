@@ -1,4 +1,4 @@
-module github.com/safchain/ethtool
+module github.com/mujin/ethtool
 
 go 1.16
 
