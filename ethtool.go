@@ -82,6 +82,11 @@ const (
 	ETHTOOL_GET_TS_INFO   = 0x00000041 /* Get time stamping and PHC info */
 	ETHTOOL_GMODULEINFO   = 0x00000042 /* Get plug-in module information */
 	ETHTOOL_GMODULEEEPROM = 0x00000043 /* Get plug-in module eeprom */
+
+	/* Energy Efficient Ethernet */
+	ETHTOOL_GEEE               = 0x00000044 /* Get EEE settings. */
+	ETHTOOL_SEEE               = 0x00000045 /* Set EEE settings. */
+	ETHTOOL_ADVERTISE_100_FULL = 0x0008     /* IGB doesn't allow not advertising, even when EEE is disabled */
 )
 
 // MAX_GSTRINGS maximum number of stats entries that ethtool can
@@ -377,6 +382,18 @@ type Pause struct {
 	Autoneg uint32
 	RxPause uint32
 	TxPause uint32
+}
+
+type ethtoolEEE struct {
+	cmd            uint32
+	supported      uint32
+	advertised     uint32
+	lp_advertised  uint32
+	eee_active     uint32
+	eee_enabled    uint32
+	tx_lpi_enabled uint32
+	tx_lpi_timer   uint32
+	reserved       [2]uint32
 }
 
 type Ethtool struct {
@@ -1029,4 +1046,35 @@ func SupportedSpeed(mask uint64) uint64 {
 		}
 	}
 	return ret
+}
+
+// Check whether EEE is enabled for an interface
+func (e *Ethtool) GetEEEEnabled(intf string) (bool, error) {
+	x := ethtoolEEE{
+		cmd: ETHTOOL_GEEE,
+	}
+
+	if err := e.ioctl(intf, uintptr(unsafe.Pointer(&x))); err != nil {
+		return false, err
+	}
+
+	return x.eee_enabled > 0, nil
+}
+
+// Set whether EEE is enabled for an interface
+func (e *Ethtool) SetEEEEnabled(intf string, enable bool) error {
+	x := ethtoolEEE{
+		cmd:        ETHTOOL_SEEE,
+		advertised: ETHTOOL_ADVERTISE_100_FULL,
+	}
+	if enable {
+		x.eee_enabled = 1
+	} else {
+		x.eee_enabled = 0
+	}
+	if err := e.ioctl(intf, uintptr(unsafe.Pointer(&x))); err != nil {
+		return err
+	}
+
+	return nil
 }
