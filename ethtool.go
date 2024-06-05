@@ -384,6 +384,7 @@ type Pause struct {
 	TxPause uint32
 }
 
+// uapi EEE control structure
 type ethtoolEEE struct {
 	cmd            uint32
 	supported      uint32
@@ -394,6 +395,31 @@ type ethtoolEEE struct {
 	tx_lpi_enabled uint32
 	tx_lpi_timer   uint32
 	reserved       [2]uint32
+}
+
+// End-user facing EEE control structure
+type EEE struct {
+	// Mask of %SUPPORTED_* flags for the speed/duplex combinations for which EEE is supported
+	Supported uint32
+
+	// Mask of %ADVERTISED_* flags for the speed/duplex combinations advertized as EEE capable
+	Advertised uint32
+
+	// Mask of %ADVERTISED_* flags for the speed/duplex combinations advertized by the link partner as EEE capable
+	LpAdvertised uint32
+
+	// Result of the eee auto negotiation
+	Active bool
+
+	// EEE configured mode (enabled/disabled)
+	Enabled bool
+
+	// Whether the interface should assert its tx lpi, given that eee was negotiated.
+	TxLpiEnabled bool
+
+	// Time in microseconds the interface delays prior to asserting its tx lpi (after reaching 'idle' state).
+	// Effective only when EEE was negotiated and TxLpiEnabled was set.
+	TxLpiTimer uint32
 }
 
 type Ethtool struct {
@@ -1049,29 +1075,43 @@ func SupportedSpeed(mask uint64) uint64 {
 }
 
 // Check whether EEE is enabled for an interface
-func (e *Ethtool) GetEEEEnabled(intf string) (bool, error) {
+func (e *Ethtool) GetEEE(intf string) (*EEE, error) {
 	x := ethtoolEEE{
 		cmd: ETHTOOL_GEEE,
 	}
 
 	if err := e.ioctl(intf, uintptr(unsafe.Pointer(&x))); err != nil {
-		return false, err
+		return nil, err
 	}
 
-	return x.eee_enabled > 0, nil
+	// Convert to user-facing form
+	ret := EEE{
+		Supported:    x.supported,
+		Advertised:   x.advertised,
+		LpAdvertised: x.lp_advertised,
+		Active:       x.eee_active > 0,
+		Enabled:      x.eee_enabled > 0,
+		TxLpiEnabled: x.tx_lpi_enabled > 0,
+		TxLpiTimer:   x.tx_lpi_timer,
+	}
+	return &ret, nil
 }
 
 // Set whether EEE is enabled for an interface
-func (e *Ethtool) SetEEEEnabled(intf string, enable bool) error {
+func (e *Ethtool) SetEEE(intf string, config EEE) error {
 	x := ethtoolEEE{
-		cmd:        ETHTOOL_SEEE,
-		advertised: ETHTOOL_ADVERTISE_100_FULL,
+		cmd:           ETHTOOL_SEEE,
+		advertised:    config.Advertised,
+		lp_advertised: config.LpAdvertised,
+		tx_lpi_timer:  config.TxLpiTimer,
 	}
-	if enable {
+	if config.Enabled {
 		x.eee_enabled = 1
-	} else {
-		x.eee_enabled = 0
 	}
+	if config.TxLpiEnabled {
+		x.tx_lpi_enabled = 1
+	}
+
 	if err := e.ioctl(intf, uintptr(unsafe.Pointer(&x))); err != nil {
 		return err
 	}
